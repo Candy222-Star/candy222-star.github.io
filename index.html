@@ -13,7 +13,29 @@
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <style>
-      /* 视频直接播放按钮样式 */
+      /* 卡片上直接播放按钮 */
+      .card-direct-play-btn {
+        display: block !important;
+        position: absolute !important;
+        bottom: 8px !important;
+        left: 8px !important;
+        right: 8px !important;
+        padding: 10px 12px !important;
+        background: linear-gradient(135deg, #ff6b6b, #ee5a24) !important;
+        color: #fff !important;
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        text-align: center !important;
+        text-decoration: none !important;
+        border-radius: 8px !important;
+        box-shadow: 0 2px 10px rgba(238,90,36,0.5) !important;
+        z-index: 9999 !important;
+        pointer-events: auto !important;
+      }
+      .card-direct-play-btn:active {
+        transform: scale(0.97) !important;
+      }
+      /* 模态框内播放按钮 */
       .mobile-video-direct-btn {
         display: block !important;
         width: 100% !important;
@@ -33,9 +55,6 @@
       .mobile-video-direct-btn:active {
         transform: scale(0.98) !important;
       }
-      .mobile-video-direct-btn .btn-icon {
-        margin-right: 8px;
-      }
       .mobile-video-tip {
         display: block !important;
         text-align: center !important;
@@ -46,12 +65,11 @@
       }
     </style>
     <script>
-      // 底层修复 v3：拦截 video 的 play 方法和 muted 属性
+      // 底层修复：拦截 video 的 play 方法和 muted 属性
       (function() {
         try {
           var proto = HTMLMediaElement.prototype;
           var originalPlay = proto.play;
-          var originalLoad = proto.load;
           proto.play = function() {
             try {
               this.muted = true;
@@ -61,13 +79,6 @@
               this.setAttribute('webkit-playsinline', 'webkit-playsinline');
             } catch(e) {}
             return originalPlay.apply(this, arguments);
-          };
-          proto.load = function() {
-            try {
-              this.muted = true;
-              this.setAttribute('muted', 'muted');
-            } catch(e) {}
-            return originalLoad.apply(this, arguments);
           };
           try {
             var mutedProp = Object.getOwnPropertyDescriptor(proto, 'muted');
@@ -88,99 +99,143 @@
   <body>
     <div id="root"></div>
     <script>
-      // v4：视频模态框自动添加「直接在新窗口播放」按钮
+      // v5：在视频作品卡片上直接添加超链接播放按钮
       (function() {
-        var addedBtns = new WeakSet();
+        var processedCards = new WeakSet();
 
-        function addDirectPlayButton(video) {
-          if (!video || addedBtns.has(video)) return;
-          if (!video.src) return;
-
-          var videoUrl = video.src;
+        // 从封面图URL推断视频URL
+        function getVideoUrlFromPoster(posterSrc) {
+          if (!posterSrc) return null;
+          // /media/posters/xxx.jpg -> /media/videos/xxx.mp4
+          var videoUrl = posterSrc
+            .replace('/media/posters/', '/media/videos/')
+            .replace(/\.jpg$/, '.mp4')
+            .replace(/\.jpeg$/, '.mp4')
+            .replace(/\.png$/, '.mp4');
           if (videoUrl.startsWith('/')) {
             videoUrl = window.location.origin + videoUrl;
           }
+          return videoUrl;
+        }
 
-          // 找到视频的父容器
-          var container = video.closest('.video-player') || video.parentElement;
-          if (!container) return;
+        // 给视频作品卡片添加直接播放按钮
+        function addCardPlayButton(card) {
+          if (!card || processedCards.has(card)) return;
 
-          // 检查是否已经添加过
-          if (container.querySelector('.mobile-video-direct-btn')) return;
+          // 找到封面图
+          var posterImg = card.querySelector('img.mp-poster') || card.querySelector('img');
+          if (!posterImg || !posterImg.src) return;
+
+          var videoUrl = getVideoUrlFromPoster(posterImg.src);
+          if (!videoUrl) return;
+
+          // 确保卡片是相对定位
+          var cardPosition = window.getComputedStyle(card).position;
+          if (cardPosition === 'static') {
+            card.style.position = 'relative';
+          }
 
           // 创建直接播放按钮
           var btn = document.createElement('a');
           btn.href = videoUrl;
           btn.target = '_blank';
           btn.rel = 'noopener noreferrer';
-          btn.className = 'mobile-video-direct-btn';
-          btn.innerHTML = '<span class="btn-icon">▶</span>点击在新窗口播放视频（推荐）';
+          btn.className = 'card-direct-play-btn';
+          btn.innerHTML = '▶ 点击播放视频';
+          btn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            // 让默认行为打开新窗口
+          });
 
-          // 创建提示文字
-          var tip = document.createElement('p');
-          tip.className = 'mobile-video-tip';
-          tip.textContent = '如内嵌播放失败，请点击上方按钮用浏览器原生播放器打开';
-
-          // 插入到视频前面
-          container.insertBefore(tip, video);
-          container.insertBefore(btn, tip);
-
-          addedBtns.add(video);
-
-          // 同时尝试自动播放（静音）
-          try {
-            video.muted = true;
-            var p = video.play();
-            if (p && p.catch) { p.catch(function(){}); }
-          } catch(e) {}
+          card.appendChild(btn);
+          processedCards.add(card);
         }
 
-        function scanVideos() {
+        // 扫描所有视频作品卡片
+        function scanCards() {
+          // 视频作品卡片有 .media-play 类
+          var cards = document.querySelectorAll('.media-play, button[aria-label="播放视频"]');
+          cards.forEach(function(card) {
+            addCardPlayButton(card);
+          });
+
+          // 同时处理模态框里的视频
           var videos = document.querySelectorAll('video');
-          videos.forEach(function(v) {
-            if (v.src) addDirectPlayButton(v);
+          videos.forEach(function(video) {
+            if (video.src && !video.dataset.modalBtnAdded) {
+              video.dataset.modalBtnAdded = 'true';
+              var container = video.closest('.video-player') || video.parentElement;
+              if (container && !container.querySelector('.mobile-video-direct-btn')) {
+                var videoUrl = video.src;
+                if (videoUrl.startsWith('/')) {
+                  videoUrl = window.location.origin + videoUrl;
+                }
+                var btn = document.createElement('a');
+                btn.href = videoUrl;
+                btn.target = '_blank';
+                btn.rel = 'noopener noreferrer';
+                btn.className = 'mobile-video-direct-btn';
+                btn.innerHTML = '▶ 点击在新窗口播放视频（推荐）';
+                var tip = document.createElement('p');
+                tip.className = 'mobile-video-tip';
+                tip.textContent = '如内嵌播放失败，请点击上方按钮用浏览器原生播放器打开';
+                container.insertBefore(tip, video);
+                container.insertBefore(btn, tip);
+              }
+              try {
+                video.muted = true;
+                var p = video.play();
+                if (p && p.catch) { p.catch(function(){}); }
+              } catch(e) {}
+            }
           });
         }
 
         // 立即扫描
-        scanVideos();
+        scanCards();
 
-        // MutationObserver 监听动态视频
+        // MutationObserver 监听动态创建的卡片
         var observer = new MutationObserver(function(mutations) {
           var found = false;
           mutations.forEach(function(m) {
             m.addedNodes.forEach(function(node) {
-              if (node.tagName === 'VIDEO') found = true;
-              else if (node.querySelectorAll && node.querySelectorAll('video').length > 0) found = true;
+              if (node.nodeType === 1) {
+                if (node.classList && (node.classList.contains('media-play') || node.getAttribute('aria-label') === '播放视频')) {
+                  found = true;
+                }
+                if (node.querySelectorAll) {
+                  if (node.querySelectorAll('.media-play, video').length > 0) found = true;
+                }
+              }
             });
           });
           if (found) {
-            setTimeout(scanVideos, 50);
-            setTimeout(scanVideos, 200);
-            setTimeout(scanVideos, 500);
-            setTimeout(scanVideos, 1000);
+            setTimeout(scanCards, 50);
+            setTimeout(scanCards, 200);
+            setTimeout(scanCards, 500);
+            setTimeout(scanCards, 1000);
           }
         });
         observer.observe(document.body, { childList: true, subtree: true });
 
         // 全局点击监听
         document.addEventListener('click', function() {
-          setTimeout(scanVideos, 100);
-          setTimeout(scanVideos, 300);
-          setTimeout(scanVideos, 600);
-          setTimeout(scanVideos, 1000);
-          setTimeout(scanVideos, 2000);
+          setTimeout(scanCards, 100);
+          setTimeout(scanCards, 300);
+          setTimeout(scanCards, 600);
+          setTimeout(scanCards, 1000);
+          setTimeout(scanCards, 2000);
         }, true);
 
         // 定期检查
         var count = 0;
         var interval = setInterval(function() {
-          scanVideos();
+          scanCards();
           count++;
           if (count >= 120) clearInterval(interval);
         }, 1000);
 
-        window.fixAllVideos = scanVideos;
+        window.fixAllVideos = scanCards;
       })();
     </script>
   </body>
