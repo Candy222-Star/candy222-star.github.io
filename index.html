@@ -12,6 +12,61 @@
       rel="stylesheet"
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script>
+      // 底层修复 v3：拦截 video 的 play 方法和 muted 属性，确保任何播放都是静音的
+      (function() {
+        try {
+          var proto = HTMLMediaElement.prototype;
+          var originalPlay = proto.play;
+          var originalLoad = proto.load;
+
+          // 重写 play 方法：播放前强制静音
+          proto.play = function() {
+            try {
+              this.muted = true;
+              this.setAttribute('muted', 'muted');
+              this.playsInline = true;
+              this.setAttribute('playsinline', 'playsinline');
+              this.setAttribute('webkit-playsinline', 'webkit-playsinline');
+            } catch(e) {}
+            return originalPlay.apply(this, arguments);
+          };
+
+          // 重写 load 方法：加载前强制静音
+          proto.load = function() {
+            try {
+              this.muted = true;
+              this.setAttribute('muted', 'muted');
+            } catch(e) {}
+            return originalLoad.apply(this, arguments);
+          };
+
+          // 拦截 muted 属性：永远返回 true，设置时也强制 true
+          try {
+            var mutedProp = Object.getOwnPropertyDescriptor(proto, 'muted');
+            if (mutedProp && mutedProp.configurable) {
+              Object.defineProperty(proto, 'muted', {
+                configurable: true,
+                get: function() { return true; },
+                set: function(v) { /* 强制静音，忽略设置 */ }
+              });
+            }
+          } catch(e) {}
+
+          // 拦截 autoplay 属性
+          try {
+            var autoplayProp = Object.getOwnPropertyDescriptor(proto, 'autoplay');
+            if (autoplayProp && autoplayProp.configurable) {
+              Object.defineProperty(proto, 'autoplay', {
+                configurable: true,
+                get: function() { return true; },
+                set: function(v) { /* 允许设置，但播放时会强制静音 */ }
+              });
+            }
+          } catch(e) {}
+        } catch(e) {}
+      })();
+    </script>
     <script type="module" crossorigin src="/assets/index-C0xaGZy-.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-CrUesDhY.css">
   </head>
@@ -24,22 +79,17 @@
 
         function forceFixVideo(video) {
           try {
-            // 强制设置静音（property + attribute 双保险）
             video.muted = true;
             video.setAttribute('muted', 'muted');
             video.defaultMuted = true;
-            // 强制内联播放
             video.playsInline = true;
             video.setAttribute('playsinline', 'playsinline');
             video.setAttribute('webkit-playsinline', 'webkit-playsinline');
             video.setAttribute('x5-playsinline', 'x5-playsinline');
-            // 预加载
             video.preload = 'auto';
-            // 标记
-            video.dataset.mobileFixed = 'v2';
+            video.dataset.mobileFixed = 'v3';
             fixedCount++;
 
-            // 等元数据加载后尝试播放
             var tryPlay = function() {
               try {
                 video.muted = true;
@@ -55,28 +105,19 @@
               video.addEventListener('canplay', tryPlay, { once: true });
             }
 
-            // 播放前强制静音
-            video.addEventListener('play', function() {
-              video.muted = true;
-            });
-            video.addEventListener('playing', function() {
-              video.muted = true;
-            });
+            video.addEventListener('play', function() { video.muted = true; });
+            video.addEventListener('playing', function() { video.muted = true; });
           } catch(e) {}
         }
 
         function scanAndFix() {
           var videos = document.querySelectorAll('video');
-          videos.forEach(function(v) {
-            forceFixVideo(v);
-          });
+          videos.forEach(function(v) { forceFixVideo(v); });
           return videos.length;
         }
 
-        // 1. 立即扫描
         scanAndFix();
 
-        // 2. MutationObserver 监听动态创建的视频
         var observer = new MutationObserver(function(mutations) {
           var found = false;
           mutations.forEach(function(m) {
@@ -95,7 +136,6 @@
         });
         observer.observe(document.body, { childList: true, subtree: true });
 
-        // 3. 全局点击监听（点击作品卡片打开模态框时触发）
         document.addEventListener('click', function() {
           setTimeout(scanAndFix, 100);
           setTimeout(scanAndFix, 300);
@@ -103,14 +143,12 @@
           setTimeout(scanAndFix, 1000);
         }, true);
 
-        // 4. 定期检查（前30秒每500ms，之后每2秒）
         var checkCount = 0;
         var interval = setInterval(function() {
           scanAndFix();
           checkCount++;
           if (checkCount >= 60) {
             clearInterval(interval);
-            // 之后每2秒检查一次，持续2分钟
             var slowInterval = setInterval(function() {
               scanAndFix();
               if (checkCount >= 120) clearInterval(slowInterval);
@@ -119,7 +157,6 @@
           }
         }, 500);
 
-        // 5. 监听窗口可见性变化（切回页面时重新检查）
         document.addEventListener('visibilitychange', function() {
           if (!document.hidden) {
             setTimeout(scanAndFix, 100);
@@ -127,7 +164,6 @@
           }
         });
 
-        // 6. 暴露全局函数方便调试
         window.fixAllVideos = scanAndFix;
       })();
     </script>
