@@ -17,5 +17,31 @@
   </head>
   <body>
     <div id="root"></div>
+    <script>
+      // 移动端视频兼容修复：自动给所有视频设置静音，确保可以自动播放
+      (function() {
+        function fixVideo(video) {
+          if (!video.dataset.mobileFixed) {
+            video.muted = true;
+            video.setAttribute('muted', '');
+            video.playsInline = true;
+            video.setAttribute('playsinline', '');
+            video.dataset.mobileFixed = 'true';
+            var p = video.play();
+            if (p && p.catch) { p.catch(function(){}); }
+          }
+        }
+        document.querySelectorAll('video').forEach(fixVideo);
+        var observer = new MutationObserver(function(mutations) {
+          mutations.forEach(function(m) {
+            m.addedNodes.forEach(function(node) {
+              if (node.tagName === 'VIDEO') fixVideo(node);
+              else if (node.querySelectorAll) node.querySelectorAll('video').forEach(fixVideo);
+            });
+          });
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
+      })();
+    </script>
   </body>
 </html>
