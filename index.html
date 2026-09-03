@@ -12,15 +12,46 @@
       rel="stylesheet"
     />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <style>
+      /* 视频直接播放按钮样式 */
+      .mobile-video-direct-btn {
+        display: block !important;
+        width: 100% !important;
+        padding: 16px 20px !important;
+        margin: 10px 0 !important;
+        background: linear-gradient(135deg, #ff6b6b, #ee5a24) !important;
+        color: #fff !important;
+        font-size: 16px !important;
+        font-weight: 700 !important;
+        text-align: center !important;
+        text-decoration: none !important;
+        border-radius: 10px !important;
+        box-shadow: 0 4px 15px rgba(238,90,36,0.4) !important;
+        z-index: 99999 !important;
+        position: relative !important;
+      }
+      .mobile-video-direct-btn:active {
+        transform: scale(0.98) !important;
+      }
+      .mobile-video-direct-btn .btn-icon {
+        margin-right: 8px;
+      }
+      .mobile-video-tip {
+        display: block !important;
+        text-align: center !important;
+        font-size: 13px !important;
+        color: #666 !important;
+        margin: 8px 0 !important;
+        padding: 0 !important;
+      }
+    </style>
     <script>
-      // 底层修复 v3：拦截 video 的 play 方法和 muted 属性，确保任何播放都是静音的
+      // 底层修复 v3：拦截 video 的 play 方法和 muted 属性
       (function() {
         try {
           var proto = HTMLMediaElement.prototype;
           var originalPlay = proto.play;
           var originalLoad = proto.load;
-
-          // 重写 play 方法：播放前强制静音
           proto.play = function() {
             try {
               this.muted = true;
@@ -31,8 +62,6 @@
             } catch(e) {}
             return originalPlay.apply(this, arguments);
           };
-
-          // 重写 load 方法：加载前强制静音
           proto.load = function() {
             try {
               this.muted = true;
@@ -40,27 +69,13 @@
             } catch(e) {}
             return originalLoad.apply(this, arguments);
           };
-
-          // 拦截 muted 属性：永远返回 true，设置时也强制 true
           try {
             var mutedProp = Object.getOwnPropertyDescriptor(proto, 'muted');
             if (mutedProp && mutedProp.configurable) {
               Object.defineProperty(proto, 'muted', {
                 configurable: true,
                 get: function() { return true; },
-                set: function(v) { /* 强制静音，忽略设置 */ }
-              });
-            }
-          } catch(e) {}
-
-          // 拦截 autoplay 属性
-          try {
-            var autoplayProp = Object.getOwnPropertyDescriptor(proto, 'autoplay');
-            if (autoplayProp && autoplayProp.configurable) {
-              Object.defineProperty(proto, 'autoplay', {
-                configurable: true,
-                get: function() { return true; },
-                set: function(v) { /* 允许设置，但播放时会强制静音 */ }
+                set: function(v) {}
               });
             }
           } catch(e) {}
@@ -73,98 +88,99 @@
   <body>
     <div id="root"></div>
     <script>
-      // 移动端视频兼容修复 v2 - 多重保障确保所有视频可播放
+      // v4：视频模态框自动添加「直接在新窗口播放」按钮
       (function() {
-        var fixedCount = 0;
+        var addedBtns = new WeakSet();
 
-        function forceFixVideo(video) {
+        function addDirectPlayButton(video) {
+          if (!video || addedBtns.has(video)) return;
+          if (!video.src) return;
+
+          var videoUrl = video.src;
+          if (videoUrl.startsWith('/')) {
+            videoUrl = window.location.origin + videoUrl;
+          }
+
+          // 找到视频的父容器
+          var container = video.closest('.video-player') || video.parentElement;
+          if (!container) return;
+
+          // 检查是否已经添加过
+          if (container.querySelector('.mobile-video-direct-btn')) return;
+
+          // 创建直接播放按钮
+          var btn = document.createElement('a');
+          btn.href = videoUrl;
+          btn.target = '_blank';
+          btn.rel = 'noopener noreferrer';
+          btn.className = 'mobile-video-direct-btn';
+          btn.innerHTML = '<span class="btn-icon">▶</span>点击在新窗口播放视频（推荐）';
+
+          // 创建提示文字
+          var tip = document.createElement('p');
+          tip.className = 'mobile-video-tip';
+          tip.textContent = '如内嵌播放失败，请点击上方按钮用浏览器原生播放器打开';
+
+          // 插入到视频前面
+          container.insertBefore(tip, video);
+          container.insertBefore(btn, tip);
+
+          addedBtns.add(video);
+
+          // 同时尝试自动播放（静音）
           try {
             video.muted = true;
-            video.setAttribute('muted', 'muted');
-            video.defaultMuted = true;
-            video.playsInline = true;
-            video.setAttribute('playsinline', 'playsinline');
-            video.setAttribute('webkit-playsinline', 'webkit-playsinline');
-            video.setAttribute('x5-playsinline', 'x5-playsinline');
-            video.preload = 'auto';
-            video.dataset.mobileFixed = 'v3';
-            fixedCount++;
-
-            var tryPlay = function() {
-              try {
-                video.muted = true;
-                var p = video.play();
-                if (p && p.catch) { p.catch(function(){}); }
-              } catch(e) {}
-            };
-
-            if (video.readyState >= 1) {
-              tryPlay();
-            } else {
-              video.addEventListener('loadedmetadata', tryPlay, { once: true });
-              video.addEventListener('canplay', tryPlay, { once: true });
-            }
-
-            video.addEventListener('play', function() { video.muted = true; });
-            video.addEventListener('playing', function() { video.muted = true; });
+            var p = video.play();
+            if (p && p.catch) { p.catch(function(){}); }
           } catch(e) {}
         }
 
-        function scanAndFix() {
+        function scanVideos() {
           var videos = document.querySelectorAll('video');
-          videos.forEach(function(v) { forceFixVideo(v); });
-          return videos.length;
+          videos.forEach(function(v) {
+            if (v.src) addDirectPlayButton(v);
+          });
         }
 
-        scanAndFix();
+        // 立即扫描
+        scanVideos();
 
+        // MutationObserver 监听动态视频
         var observer = new MutationObserver(function(mutations) {
           var found = false;
           mutations.forEach(function(m) {
             m.addedNodes.forEach(function(node) {
-              if (node.tagName === 'VIDEO') { found = true; }
-              else if (node.querySelectorAll) {
-                if (node.querySelectorAll('video').length > 0) found = true;
-              }
+              if (node.tagName === 'VIDEO') found = true;
+              else if (node.querySelectorAll && node.querySelectorAll('video').length > 0) found = true;
             });
           });
           if (found) {
-            setTimeout(scanAndFix, 50);
-            setTimeout(scanAndFix, 200);
-            setTimeout(scanAndFix, 500);
+            setTimeout(scanVideos, 50);
+            setTimeout(scanVideos, 200);
+            setTimeout(scanVideos, 500);
+            setTimeout(scanVideos, 1000);
           }
         });
         observer.observe(document.body, { childList: true, subtree: true });
 
+        // 全局点击监听
         document.addEventListener('click', function() {
-          setTimeout(scanAndFix, 100);
-          setTimeout(scanAndFix, 300);
-          setTimeout(scanAndFix, 600);
-          setTimeout(scanAndFix, 1000);
+          setTimeout(scanVideos, 100);
+          setTimeout(scanVideos, 300);
+          setTimeout(scanVideos, 600);
+          setTimeout(scanVideos, 1000);
+          setTimeout(scanVideos, 2000);
         }, true);
 
-        var checkCount = 0;
+        // 定期检查
+        var count = 0;
         var interval = setInterval(function() {
-          scanAndFix();
-          checkCount++;
-          if (checkCount >= 60) {
-            clearInterval(interval);
-            var slowInterval = setInterval(function() {
-              scanAndFix();
-              if (checkCount >= 120) clearInterval(slowInterval);
-              checkCount++;
-            }, 2000);
-          }
-        }, 500);
+          scanVideos();
+          count++;
+          if (count >= 120) clearInterval(interval);
+        }, 1000);
 
-        document.addEventListener('visibilitychange', function() {
-          if (!document.hidden) {
-            setTimeout(scanAndFix, 100);
-            setTimeout(scanAndFix, 500);
-          }
-        });
-
-        window.fixAllVideos = scanAndFix;
+        window.fixAllVideos = scanVideos;
       })();
     </script>
   </body>
