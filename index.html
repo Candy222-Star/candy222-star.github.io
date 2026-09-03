@@ -18,29 +18,117 @@
   <body>
     <div id="root"></div>
     <script>
-      // 移动端视频兼容修复：自动给所有视频设置静音，确保可以自动播放
+      // 移动端视频兼容修复 v2 - 多重保障确保所有视频可播放
       (function() {
-        function fixVideo(video) {
-          if (!video.dataset.mobileFixed) {
+        var fixedCount = 0;
+
+        function forceFixVideo(video) {
+          try {
+            // 强制设置静音（property + attribute 双保险）
             video.muted = true;
-            video.setAttribute('muted', '');
+            video.setAttribute('muted', 'muted');
+            video.defaultMuted = true;
+            // 强制内联播放
             video.playsInline = true;
-            video.setAttribute('playsinline', '');
-            video.dataset.mobileFixed = 'true';
-            var p = video.play();
-            if (p && p.catch) { p.catch(function(){}); }
-          }
+            video.setAttribute('playsinline', 'playsinline');
+            video.setAttribute('webkit-playsinline', 'webkit-playsinline');
+            video.setAttribute('x5-playsinline', 'x5-playsinline');
+            // 预加载
+            video.preload = 'auto';
+            // 标记
+            video.dataset.mobileFixed = 'v2';
+            fixedCount++;
+
+            // 等元数据加载后尝试播放
+            var tryPlay = function() {
+              try {
+                video.muted = true;
+                var p = video.play();
+                if (p && p.catch) { p.catch(function(){}); }
+              } catch(e) {}
+            };
+
+            if (video.readyState >= 1) {
+              tryPlay();
+            } else {
+              video.addEventListener('loadedmetadata', tryPlay, { once: true });
+              video.addEventListener('canplay', tryPlay, { once: true });
+            }
+
+            // 播放前强制静音
+            video.addEventListener('play', function() {
+              video.muted = true;
+            });
+            video.addEventListener('playing', function() {
+              video.muted = true;
+            });
+          } catch(e) {}
         }
-        document.querySelectorAll('video').forEach(fixVideo);
+
+        function scanAndFix() {
+          var videos = document.querySelectorAll('video');
+          videos.forEach(function(v) {
+            forceFixVideo(v);
+          });
+          return videos.length;
+        }
+
+        // 1. 立即扫描
+        scanAndFix();
+
+        // 2. MutationObserver 监听动态创建的视频
         var observer = new MutationObserver(function(mutations) {
+          var found = false;
           mutations.forEach(function(m) {
             m.addedNodes.forEach(function(node) {
-              if (node.tagName === 'VIDEO') fixVideo(node);
-              else if (node.querySelectorAll) node.querySelectorAll('video').forEach(fixVideo);
+              if (node.tagName === 'VIDEO') { found = true; }
+              else if (node.querySelectorAll) {
+                if (node.querySelectorAll('video').length > 0) found = true;
+              }
             });
           });
+          if (found) {
+            setTimeout(scanAndFix, 50);
+            setTimeout(scanAndFix, 200);
+            setTimeout(scanAndFix, 500);
+          }
         });
         observer.observe(document.body, { childList: true, subtree: true });
+
+        // 3. 全局点击监听（点击作品卡片打开模态框时触发）
+        document.addEventListener('click', function() {
+          setTimeout(scanAndFix, 100);
+          setTimeout(scanAndFix, 300);
+          setTimeout(scanAndFix, 600);
+          setTimeout(scanAndFix, 1000);
+        }, true);
+
+        // 4. 定期检查（前30秒每500ms，之后每2秒）
+        var checkCount = 0;
+        var interval = setInterval(function() {
+          scanAndFix();
+          checkCount++;
+          if (checkCount >= 60) {
+            clearInterval(interval);
+            // 之后每2秒检查一次，持续2分钟
+            var slowInterval = setInterval(function() {
+              scanAndFix();
+              if (checkCount >= 120) clearInterval(slowInterval);
+              checkCount++;
+            }, 2000);
+          }
+        }, 500);
+
+        // 5. 监听窗口可见性变化（切回页面时重新检查）
+        document.addEventListener('visibilitychange', function() {
+          if (!document.hidden) {
+            setTimeout(scanAndFix, 100);
+            setTimeout(scanAndFix, 500);
+          }
+        });
+
+        // 6. 暴露全局函数方便调试
+        window.fixAllVideos = scanAndFix;
       })();
     </script>
   </body>
